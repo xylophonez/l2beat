@@ -189,6 +189,7 @@ export const kroma: Layer2 = {
     ],
     finality: {
       type: 'OPStack',
+      minTimestamp: new UnixTime(1693880579),
       lag: 0,
     },
   },

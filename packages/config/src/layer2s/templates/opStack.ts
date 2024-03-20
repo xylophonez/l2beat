@@ -68,7 +68,7 @@ export interface OpStackConfig {
   rpcUrl?: string
   transactionApi?: Layer2TransactionApi
   genesisTimestamp: UnixTime
-  finality?: Layer2FinalityConfig
+  finality?: Omit<Layer2FinalityConfig, 'minTimestamp'>
   l2OutputOracle: ContractParameters
   portal: ContractParameters
   stateDerivation?: ScalingProjectStateDerivation
@@ -111,6 +111,11 @@ export function opStack(templateVars: OpStackConfig): Layer2 {
       templateVars.isNodeAvailable !== undefined,
       'isNodeAvailable must be defined if no DA provider is defined',
     )
+  }
+
+  const finalityConfig = templateVars.finality && {
+    ...templateVars.finality,
+    minTimestamp: templateVars.genesisTimestamp,
   }
 
   return {
@@ -193,7 +198,7 @@ export function opStack(templateVars: OpStackConfig): Layer2 {
                 },
               },
             ],
-      finality: daProvider !== undefined ? undefined : templateVars.finality,
+      finality: daProvider !== undefined ? undefined : finalityConfig,
     },
     chainConfig: templateVars.chainConfig,
     dataAvailability:

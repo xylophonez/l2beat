@@ -1,3 +1,4 @@
+import { Logger } from '@l2beat/backend-tools'
 import {
   assert,
   ProjectId,
@@ -5,7 +6,7 @@ import {
   UnixTime,
 } from '@l2beat/shared-pure'
 import { utils } from 'ethers'
-import { inflate } from 'pako'
+import { DecompressionStream } from 'stream/web'
 
 import { BlobClient } from '../../../../peripherals/blobclient/BlobClient'
 import { RpcClient } from '../../../../peripherals/rpcclient/RpcClient'
@@ -18,11 +19,13 @@ import { getFrames } from './getFrames'
 export class OpStackFinalityAnalyzer extends BaseAnalyzer {
   constructor(
     private readonly blobClient: BlobClient,
+    private readonly logger: Logger,
     provider: RpcClient,
     livenessRepository: LivenessRepository,
     projectId: ProjectId,
   ) {
     super(provider, livenessRepository, projectId)
+    this.logger = logger.for(this)
   }
 
   override getTrackedTxSubtype(): TrackedTxsConfigSubtype {
@@ -33,75 +36,91 @@ export class OpStackFinalityAnalyzer extends BaseAnalyzer {
     txHash: string
     timestamp: UnixTime
   }): Promise<number[]> {
-    const l1Timestamp = transaction.timestamp
-    // get blobs relevant to the transaction
-    const relevantBlobs = await this.blobClient.getRelevantBlobs(
-      transaction.txHash,
-    )
+    try {
+      this.logger.debug('Getting finality', { transaction })
+      const l1Timestamp = transaction.timestamp
+      // get blobs relevant to the transaction
+      const relevantBlobs = await this.blobClient.getRelevantBlobs(
+        transaction.txHash,
+      )
 
-    const rollupData = relevantBlobs.map(({ blob }) =>
-      blobToData(byteArrfromHexStr(blob)),
-    )
-    const frames = rollupData.map((ru) => getFrames(ru))
-    const channel = assembleChannel(frames)
-    const encodedBatch = getBatchFromChannel(channel)
-    const blocksWithTimestamps = decodeSpanBatch(encodedBatch)
-    const blocksWithDelays = blocksWithTimestamps.map((block) => ({
-      txCount: block.txCount,
-      delay: l1Timestamp.toNumber() - block.timestamp,
-    }))
-    // calculate weighted average
-    const totalWeight = blocksWithDelays.reduce(
-      (acc, block) => acc + block.txCount,
-      0,
-    )
-    const weightedDelays = blocksWithDelays.map(
-      (block) => (block.txCount * block.delay) / totalWeight,
-    )
-    const weightedAverage = weightedDelays.reduce(
-      (acc, delay) => acc + delay,
-      0,
-    )
-    return [weightedAverage]
+      const rollupData = relevantBlobs.map(({ blob }) =>
+        blobToData(byteArrFromHexStr(blob)),
+      )
+      const frames = rollupData.map((ru) => getFrames(ru))
+      const channel = assembleChannel(frames)
+      const encodedBatch = await getBatchFromChannel(channel)
+      const blocksWithTimestamps = decodeSpanBatch(encodedBatch)
+      assert(blocksWithTimestamps.length > 0, 'No blocks in the batch')
+      const blocksWithDelays = blocksWithTimestamps.map((block) => ({
+        txCount: block.txCount,
+        delay: l1Timestamp.toNumber() - block.timestamp,
+      }))
+
+      // calculate weighted average
+      const totalWeight = blocksWithDelays.reduce(
+        (acc, block) => acc + block.txCount,
+        0,
+      )
+      const weightedDelays = blocksWithDelays.map(
+        (block) => (block.txCount * block.delay) / totalWeight,
+      )
+      const weightedAverage = weightedDelays.reduce(
+        (acc, delay) => acc + delay,
+        0,
+      )
+
+      // TODO: should be better
+      return [weightedAverage]
+    } catch (error) {
+      this.logger.error('Error while getting finality', {
+        transaction: transaction.txHash,
+        error,
+      })
+    }
   }
 }
 
-function getBatchFromChannel(channel: Uint8Array) {
-  const decompressed = inflate(channel)
+async function getBatchFromChannel(channel: Uint8Array) {
+  const decompressed = await decompressToByteArray(channel)
   const decoded = utils.RLP.decode(decompressed) as unknown
 
   // we assume decoded is a hex string, meaning it represents only one span batch
   assert(typeof decoded === 'string', 'Decoded is not a string')
 
-  return byteArrfromHexStr(decoded)
+  return byteArrFromHexStr(decoded)
 }
 
-// async function decompressToByteArray(compressedData: Uint8Array) {
-//   // const blob = new Blob([compressedData])
-//   // const ds = new DecompressionStream('deflate')
-//   // const stream = blob.stream().pipeThrough(ds)
-//   // const reader = stream.getReader()
-//   // const chunks: Uint8Array[] = []
-//   // let totalSize = 0
-//   // while (true) {
-//   //   try {
-//   //     const { done, value } = await reader.read()
-//   //     if (done) break
-//   //     chunks.push(value)
-//   //     totalSize += value.length
-//   //   } catch (err) {
-//   //     console.log(err)
-//   //     break
-//   //   }
-//   // }
-//   // const concatenatedChunks = new Uint8Array(totalSize)
-//   // let offset = 0
-//   // for (const chunk of chunks) {
-//   //   concatenatedChunks.set(chunk, offset)
-//   //   offset += chunk.length
-//   // }
-//   // return concatenatedChunks
-// }
+async function decompressToByteArray(compressedData: Uint8Array) {
+  const blob = new Blob([compressedData])
+  const ds = new DecompressionStream('deflate')
+  const stream = blob.stream().pipeThrough(ds)
+  const reader = stream.getReader()
+  const chunks: Uint8Array[] = []
+  let totalSize = 0
+  while (true) {
+    try {
+      const { done, value } = (await reader.read()) as {
+        done: boolean
+        value: Uint8Array
+      }
+      if (done) break
+      chunks.push(value)
+      totalSize += value.length
+    } catch (err) {
+      if (err instanceof Error && err.message === 'unexpected end of file')
+        break
+      throw err
+    }
+  }
+  const concatenatedChunks = new Uint8Array(totalSize)
+  let offset = 0
+  for (const chunk of chunks) {
+    concatenatedChunks.set(chunk, offset)
+    offset += chunk.length
+  }
+  return concatenatedChunks
+}
 
 function assembleChannel(
   frames: {
@@ -124,7 +143,10 @@ function assembleChannel(
   const framesSorted = frames.sort((a, b) => a.frameNumber - b.frameNumber)
   const lastFrame = framesSorted[framesSorted.length - 1]
   assert(lastFrame.isLast, 'Last frame is not the last one')
-  assert(framesSorted.length === lastFrame.frameNumber, 'Frames are missing')
+  assert(
+    framesSorted.length - 1 === lastFrame.frameNumber,
+    'Frames are missing!',
+  )
 
   const dataLength = frames.reduce(
     (acc, frame) => acc + frame.frameData.length,
@@ -139,7 +161,7 @@ function assembleChannel(
   return data
 }
 
-function byteArrfromHexStr(hexString: string) {
+function byteArrFromHexStr(hexString: string) {
   const str = hexString.startsWith('0x') ? hexString.slice(2) : hexString
   const match = str.match(/.{1,2}/g)
 
