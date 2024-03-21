@@ -13,6 +13,7 @@ import { RpcClient } from '../../../../peripherals/rpcclient/RpcClient'
 import { LivenessRepository } from '../../../tracked-txs/modules/liveness/repositories/LivenessRepository'
 import { BaseAnalyzer } from '../types/BaseAnalyzer'
 import { blobToData } from './blobToData'
+import { Frame } from './ChannelBank'
 import { decodeSpanBatch } from './decodeSpanBatch'
 import { getFrames } from './getFrames'
 
@@ -48,7 +49,7 @@ export class OpStackFinalityAnalyzer extends BaseAnalyzer {
         blobToData(byteArrFromHexStr(blob)),
       )
       const frames = rollupData.map((ru) => getFrames(ru))
-      const channel = assembleChannel(frames)
+      const channel = assembleChannel(frames, transaction.txHash)
       const encodedBatch = await getBatchFromChannel(channel)
       const blocksWithTimestamps = decodeSpanBatch(encodedBatch)
       assert(blocksWithTimestamps.length > 0, 'No blocks in the batch')
@@ -57,7 +58,6 @@ export class OpStackFinalityAnalyzer extends BaseAnalyzer {
         delay: l1Timestamp.toNumber() - block.timestamp,
       }))
 
-      // calculate weighted average
       const totalWeight = blocksWithDelays.reduce(
         (acc, block) => acc + block.txCount,
         0,
@@ -77,6 +77,7 @@ export class OpStackFinalityAnalyzer extends BaseAnalyzer {
         transaction: transaction.txHash,
         error,
       })
+      throw error
     }
   }
 }
@@ -122,14 +123,7 @@ async function decompressToByteArray(compressedData: Uint8Array) {
   return concatenatedChunks
 }
 
-function assembleChannel(
-  frames: {
-    frameData: Uint8Array
-    channelId: string
-    isLast: boolean
-    frameNumber: number
-  }[],
-) {
+function assembleChannel(frames: Frame[], txHash: string) {
   assert(frames.length > 0, 'No frames to assemble')
 
   // we check if all frames belong to the same channel because it's simple
@@ -142,7 +136,31 @@ function assembleChannel(
   // is last frame the last one?
   const framesSorted = frames.sort((a, b) => a.frameNumber - b.frameNumber)
   const lastFrame = framesSorted[framesSorted.length - 1]
-  assert(lastFrame.isLast, 'Last frame is not the last one')
+  // assert(
+  //   lastFrame.isLast,
+  //   'Last frame is not the last one \n' +
+  //     `txHash: ${txHash} \n` +
+  //     JSON.stringify(
+  //       framesSorted.map((frame) => ({
+  //         channelId: frame.channelId,
+  //         number: frame.frameNumber,
+  //         isLast: frame.isLast,
+  //       })),
+  //     ),
+  // )
+  const firstFrame = framesSorted[0]
+  assert(
+    firstFrame.frameNumber === 0,
+    'First frame is not first \n' +
+      `txHash: ${txHash} \n` +
+      JSON.stringify(
+        framesSorted.map((frame) => ({
+          channelId: frame.channelId,
+          number: frame.frameNumber,
+          isLast: frame.isLast,
+        })),
+      ),
+  )
   assert(
     framesSorted.length - 1 === lastFrame.frameNumber,
     'Frames are missing!',
