@@ -2,6 +2,10 @@ import { assert } from '@l2beat/backend-tools'
 import proto from 'protobufjs'
 
 const SpanBatchVersion = 1
+
+// rollup config: curl -X POST -H "Content-Type: application/json" --data \
+// '{"jsonrpc":"2.0","method":"optimism_rollupConfig","params":[],"id":1}'  \
+// <rpc-url> | jq
 // TODO: THIS NEEDS TO BE CONFIGURABLE
 // BEDROCK block timestamp https://optimistic.etherscan.io/block/105235064
 const OpGenesisTimestamp = 1686068903

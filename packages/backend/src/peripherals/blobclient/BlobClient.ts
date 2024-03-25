@@ -57,7 +57,7 @@ export class BlobClient {
       tx.blobVersionedHashes,
     )
 
-    return relevantBlobs
+    return { relevantBlobs, blockNumber: tx.blockNumber }
   }
 
   private async getBlockSidecar(blockNumber: number) {

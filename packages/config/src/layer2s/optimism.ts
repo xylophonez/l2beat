@@ -74,7 +74,7 @@ export const optimism: Layer2 = opStack({
     startBlock: 1,
     assessCount: subtractOneAfterBlockInclusive(105235064),
   },
-  genesisTimestamp: new UnixTime(1686074603),
+  genesisTimestamp: new UnixTime(1686068903),
   finality: {
     type: 'OPStack',
     lag: 0,

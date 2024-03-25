@@ -13,11 +13,13 @@ import { RpcClient } from '../../../../peripherals/rpcclient/RpcClient'
 import { LivenessRepository } from '../../../tracked-txs/modules/liveness/repositories/LivenessRepository'
 import { BaseAnalyzer } from '../types/BaseAnalyzer'
 import { blobToData } from './blobToData'
-import { Frame } from './ChannelBank'
+import { ChannelBank } from './ChannelBank'
 import { decodeSpanBatch } from './decodeSpanBatch'
 import { getFrames } from './getFrames'
 
 export class OpStackFinalityAnalyzer extends BaseAnalyzer {
+  private readonly channelBank = new ChannelBank()
+
   constructor(
     private readonly blobClient: BlobClient,
     private readonly logger: Logger,
@@ -41,16 +43,20 @@ export class OpStackFinalityAnalyzer extends BaseAnalyzer {
       this.logger.debug('Getting finality', { transaction })
       const l1Timestamp = transaction.timestamp
       // get blobs relevant to the transaction
-      const relevantBlobs = await this.blobClient.getRelevantBlobs(
-        transaction.txHash,
-      )
+      const { relevantBlobs, blockNumber } =
+        await this.blobClient.getRelevantBlobs(transaction.txHash)
 
       const rollupData = relevantBlobs.map(({ blob }) =>
         blobToData(byteArrFromHexStr(blob)),
       )
       const frames = rollupData.map((ru) => getFrames(ru))
-      const channel = assembleChannel(frames, transaction.txHash)
-      const encodedBatch = await getBatchFromChannel(channel)
+      const channel = this.channelBank.addFramesToChannel(frames, blockNumber)
+      // no channel was closed in this tx, so no txs were finalized
+      if (!channel) {
+        return []
+      }
+      const assembledChannel = channel.assemble()
+      const encodedBatch = await getBatchFromChannel(assembledChannel)
       const blocksWithTimestamps = decodeSpanBatch(encodedBatch)
       assert(blocksWithTimestamps.length > 0, 'No blocks in the batch')
       const blocksWithDelays = blocksWithTimestamps.map((block) => ({
@@ -121,62 +127,6 @@ async function decompressToByteArray(compressedData: Uint8Array) {
     offset += chunk.length
   }
   return concatenatedChunks
-}
-
-function assembleChannel(frames: Frame[], txHash: string) {
-  assert(frames.length > 0, 'No frames to assemble')
-
-  // we check if all frames belong to the same channel because it's simple
-  // in fact, opstack batcher does not have to send all frames in one blob
-  // or in order, so let's assert here and fix it if we need to.
-  // do all frames belong to the same channel?
-  const channels = new Set(frames.map((frame) => frame.channelId))
-  assert(channels.size === 1, 'Frames belong to different channels')
-
-  // is last frame the last one?
-  const framesSorted = frames.sort((a, b) => a.frameNumber - b.frameNumber)
-  const lastFrame = framesSorted[framesSorted.length - 1]
-  // assert(
-  //   lastFrame.isLast,
-  //   'Last frame is not the last one \n' +
-  //     `txHash: ${txHash} \n` +
-  //     JSON.stringify(
-  //       framesSorted.map((frame) => ({
-  //         channelId: frame.channelId,
-  //         number: frame.frameNumber,
-  //         isLast: frame.isLast,
-  //       })),
-  //     ),
-  // )
-  const firstFrame = framesSorted[0]
-  assert(
-    firstFrame.frameNumber === 0,
-    'First frame is not first \n' +
-      `txHash: ${txHash} \n` +
-      JSON.stringify(
-        framesSorted.map((frame) => ({
-          channelId: frame.channelId,
-          number: frame.frameNumber,
-          isLast: frame.isLast,
-        })),
-      ),
-  )
-  assert(
-    framesSorted.length - 1 === lastFrame.frameNumber,
-    'Frames are missing!',
-  )
-
-  const dataLength = frames.reduce(
-    (acc, frame) => acc + frame.frameData.length,
-    0,
-  )
-  const data = new Uint8Array(dataLength)
-  let offset = 0
-  for (const frame of frames) {
-    data.set(frame.frameData, offset)
-    offset += frame.frameData.length
-  }
-  return data
 }
 
 function byteArrFromHexStr(hexString: string) {
