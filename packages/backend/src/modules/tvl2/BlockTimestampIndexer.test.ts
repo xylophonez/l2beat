@@ -3,7 +3,7 @@ import { UnixTime } from '@l2beat/shared-pure'
 import { expect, mockFn, mockObject } from 'earl'
 import { Knex } from 'knex'
 
-import { IndexerStateRepository } from '../../tools/uif/IndexerStateRepository'
+import { IndexerStateRepository } from '../../peripherals/database/repositories/IndexerStateRepository'
 import { HourlyIndexer } from '../tracked-txs/HourlyIndexer'
 import {
   BlockTimestampIndexer,
@@ -27,11 +27,7 @@ describe(BlockTimestampIndexer.name, () => {
       })
 
       const syncOptimizer = mockObject<SyncOptimizer>({
-        shouldTimestampBeSynced: mockFn()
-          .returnsOnce(false) // 21:00
-          .returnsOnce(false) // 22:00
-          .returnsOnce(false) // 23:00
-          .returnsOnce(true), // 00:00
+        getTimestampToSync: mockFn().returnsOnce(from.toEndOf('day')),
       })
 
       const chain = 'ethereum'
@@ -53,6 +49,8 @@ describe(BlockTimestampIndexer.name, () => {
       expect(
         blockTimestampProvider.getBlockNumberAtOrBefore,
       ).toHaveBeenOnlyCalledWith(timestampToSync)
+
+      expect(syncOptimizer.getTimestampToSync).toHaveBeenOnlyCalledWith(from)
 
       expect(blockTimestampRepository.add).toHaveBeenOnlyCalledWith({
         chain,

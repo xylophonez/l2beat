@@ -4,7 +4,7 @@ import { UnixTime } from '@l2beat/shared-pure'
 import { ChildIndexer } from '@l2beat/uif'
 import { Knex } from 'knex'
 
-import { IndexerStateRepository } from '../../tools/uif/IndexerStateRepository'
+import { IndexerStateRepository } from '../../peripherals/database/repositories/IndexerStateRepository'
 import { HourlyIndexer } from '../tracked-txs/HourlyIndexer'
 import { BlockTimestampRepository } from './repositories/BlockTimestampRepository'
 import { SyncOptimizer } from './SyncOptimizer'
@@ -37,7 +37,7 @@ export class BlockTimestampIndexer extends ChildIndexer {
   override async update(from: number, to: number): Promise<number> {
     this.logger.debug('Updating...')
 
-    const timestamp = this.getTimestampToSync(from)
+    const timestamp = this.syncOptimizer.getTimestampToSync(new UnixTime(from))
 
     if (timestamp.gt(new UnixTime(to))) {
       return to
@@ -54,16 +54,6 @@ export class BlockTimestampIndexer extends ChildIndexer {
 
     this.logger.debug('Updated')
     return timestamp.toNumber()
-  }
-
-  private getTimestampToSync(_from: number): UnixTime {
-    const timestamp = new UnixTime(_from).toEndOf('hour')
-
-    if (this.syncOptimizer.shouldTimestampBeSynced(timestamp)) {
-      return timestamp
-    } else {
-      return this.getTimestampToSync(timestamp.add(1, 'hours').toNumber())
-    }
   }
 
   override async initialize(): Promise<number> {
