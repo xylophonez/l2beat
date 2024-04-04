@@ -1119,6 +1119,12 @@
       }
     },
     {
+      "symbol": "JONES",
+      "address": "0x10393c20975cF177a3513071bC110f7962CD67da",
+      "type": "NMV",
+      "formula": "circulatingSupply"
+    },
+    {
       "symbol": "RDNT",
       "address": "0x3082CC23568eA640225c2467653dB90e9250AaA0",
       "type": "NMV",
