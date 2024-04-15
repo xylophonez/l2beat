@@ -40,7 +40,7 @@ export abstract class ManagedMultiIndexer<T> extends MultiIndexer<T> {
   override async multiInitialize(): Promise<SavedConfiguration<T>[]> {
     return await this.options.indexerService.getSavedConfigurations(
       this.options.id,
-      this.options.decode,
+      this.options.configurations,
     )
   }
 
@@ -50,7 +50,6 @@ export abstract class ManagedMultiIndexer<T> extends MultiIndexer<T> {
     await this.options.indexerService.upsertConfigurations(
       this.options.id,
       configurations,
-      this.options.encode,
     )
     await this.options.indexerService.persistOnlyUsedConfigurations(
       this.options.id,

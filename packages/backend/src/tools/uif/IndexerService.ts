@@ -1,6 +1,8 @@
+import { assert } from '@l2beat/backend-tools'
+
 import { IndexerConfigurationRepository } from './IndexerConfigurationRepository'
 import { IndexerStateRepository } from './IndexerStateRepository'
-import { SavedConfiguration } from './multi/types'
+import { Configuration, SavedConfiguration } from './multi/types'
 
 export class IndexerService {
   constructor(
@@ -30,11 +32,9 @@ export class IndexerService {
   async upsertConfigurations<T>(
     indexerId: string,
     configurations: SavedConfiguration<T>[],
-    encode: (value: T) => string,
   ): Promise<void> {
     const encoded = configurations.map((config) => ({
       ...config,
-      properties: encode(config.properties),
     }))
 
     await this.indexerConfigurationRepository.addOrUpdateManyConfigurations(
@@ -44,13 +44,24 @@ export class IndexerService {
 
   async getSavedConfigurations<T>(
     indexerId: string,
-    decode: (blob: string) => T,
+    runtime: Configuration<T>[],
   ): Promise<SavedConfiguration<T>[]> {
-    const configurations: (SavedConfiguration<string> & {
-      indexerId?: string
-    })[] = await this.indexerConfigurationRepository.getSavedConfigurations(
+    const db = await this.indexerConfigurationRepository.getSavedConfigurations(
       indexerId,
     )
+
+    const configurations: (SavedConfiguration<T> & {
+      indexerId?: string
+    })[] = db.map((d) => {
+      const properties = runtime.find((r) => r.id === d.id)?.properties
+
+      assert(properties, 'Configuration not found')
+
+      return {
+        ...d,
+        properties,
+      }
+    })
 
     for (const config of configurations) {
       delete config.indexerId
@@ -58,7 +69,6 @@ export class IndexerService {
 
     return configurations.map((config) => ({
       ...config,
-      properties: decode(config.properties),
     }))
   }
 

@@ -9,7 +9,6 @@ import { Database } from '../../peripherals/database/Database'
 export interface IndexerConfigurationRow {
   id: string
   indexer_id: string
-  properties: string
   current_height: number | null
   min_height: number
   max_height: number | null
@@ -17,7 +16,6 @@ export interface IndexerConfigurationRow {
 export interface IndexerConfigurationRecord {
   id: string
   indexerId: string
-  properties: string
   currentHeight: number | null
   minHeight: number
   maxHeight: number | null
@@ -106,7 +104,6 @@ function toRow(record: IndexerConfigurationRecord): IndexerConfigurationRow {
   return {
     id: record.id,
     indexer_id: record.indexerId,
-    properties: record.properties,
     current_height: record.currentHeight,
     min_height: record.minHeight,
     max_height: record.maxHeight,
@@ -117,7 +114,6 @@ function toRecord(row: IndexerConfigurationRow): IndexerConfigurationRecord {
   return {
     id: row.id,
     indexerId: row.indexer_id,
-    properties: row.properties,
     currentHeight: row.current_height,
     minHeight: row.min_height,
     maxHeight: row.max_height,
