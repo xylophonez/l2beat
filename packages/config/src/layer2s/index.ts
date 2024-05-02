@@ -56,6 +56,7 @@ import { mode } from './mode'
 import { molten } from './molten'
 import { morph } from './morph'
 import { myria } from './myria'
+import { myshell } from './myshell'
 import { nil } from './nil'
 import { nova } from './nova'
 import { oev } from './oev'
@@ -163,6 +164,7 @@ export const layer2s: Layer2[] = [
   molten,
   morph,
   myria,
+  myshell,
   nil,
   nova,
   oev,
