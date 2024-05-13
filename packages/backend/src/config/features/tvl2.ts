@@ -62,6 +62,7 @@ export function getTvl2Config(
       'COINGECKO_API_KEY',
     ]),
     chainConverter,
+    projects,
   }
 
   return tvl2Config
